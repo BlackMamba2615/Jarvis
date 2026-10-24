@@ -1,0 +1,14 @@
+# Direct dependencies verified against the existing Windows Python 3.12 environment.
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32
+python-dotenv==1.2.3
+faster-whisper==1.2.1
+opencc-python-reimplemented==0.1.7
+numpy==2.2.6
+pypinyin==0.55.0
+pywin32==312; sys_platform == "win32"
+Pillow==11.3.0
+opencv-python-headless==4.12.0.88
+requests==2.34.2
+httpx==0.28.1

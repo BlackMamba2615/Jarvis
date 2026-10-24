@@ -1,0 +1,187 @@
+﻿{
+    "version":  1,
+    "settings":  {
+                     "wake_words":  [
+                                        "贾维斯",
+                                        "贾维思",
+                                        "贾维斯啊",
+                                        "加维斯",
+                                        "加维思",
+                                        "嘉维斯",
+                                        "扎维斯",
+                                        "jarvis"
+                                    ],
+                     "sleep_phrases":  [
+                                             "休眠",
+                                             "进入休眠",
+                                             "先休眠",
+                                             "结束对话"
+                                         ],
+                     "exit_phrases":  [
+                                            "退出",
+                                            "退出贾维斯",
+                                            "关闭贾维斯",
+                                            "彻底退出"
+                                        ],
+                     "open_intents":  [
+                                          "打开",
+                                          "开启",
+                                          "启动",
+                                          "开一下",
+                                          "帮我开",
+                                          "给我开",
+                                          "帮我打开",
+                                          "给我打开",
+                                          "运行",
+                                          "启动一下"
+                                      ],
+                     "punctuation":  [
+                                         "。",
+                                         "！",
+                                         "!",
+                                         "？",
+                                         "?",
+                                         "，",
+                                         ",",
+                                         "、",
+                                         "；",
+                                         ";",
+                                         "：",
+                                         ":",
+                                         "“",
+                                         "”",
+                                         "\"",
+                                         "\u0027",
+                                         "（",
+                                         "）",
+                                         "(",
+                                         ")",
+                                         "【",
+                                         "】",
+                                         "[",
+                                         "]"
+                                     ]
+                 },
+    "actions":  {
+                    "open_wechat":  {
+                                        "type":  "open_path",
+                                        "target":  "D:\\Program Files\\Tencent\\Weixin\\Weixin.exe",
+                                        "aliases":  [
+                                                        "微信",
+                                                        "weixin",
+                                                        "wechat"
+                                                    ],
+                                        "intent":  "open",
+                                        "message":  "微信已打开"
+                                    },
+                    "wechat_login_qr":  {
+                                              "type":  "wechat_login_qr",
+                                              "keyword_groups":  [
+                                                                     ["微信", "weixin", "wechat"],
+                                                                     ["电脑", "计算机", "pc", "windows"],
+                                                                     ["登录", "登陆", "扫码", "二维码"]
+                                                                 ],
+                                              "triggers":  [
+                                                               "帮我在电脑上登录微信",
+                                                               "帮我在电脑上登陆微信",
+                                                               "登录电脑微信",
+                                                               "登陆电脑微信",
+                                                               "电脑微信登录二维码",
+                                                               "电脑微信登陆二维码",
+                                                               "微信扫码登录",
+                                                               "微信扫码登陆"
+                                                           ],
+                                              "message":  "微信登录二维码已发送到手机"
+                                          },
+                    "open_notepad":  {
+                                         "type":  "open_path",
+                                         "target":  "C:\\Windows\\System32\\notepad.exe",
+                                         "aliases":  [
+                                                         "记事本",
+                                                         "笔记本",
+                                                         "notepad"
+                                                     ],
+                                         "intent":  "open",
+                                         "message":  "记事本已打开"
+                                     },
+                    "open_explorer":  {
+                                          "type":  "open_path",
+                                          "target":  "C:\\Windows\\explorer.exe",
+                                          "aliases":  [
+                                                          "文件夹",
+                                                          "文件管理器",
+                                                          "文件资源管理器",
+                                                          "资源管理器",
+                                                          "我的电脑",
+                                                          "此电脑"
+                                                      ],
+                                          "intent":  "open",
+                                          "message":  "文件资源管理器已打开"
+                                      },
+                    "open_jarvis":  {
+                                        "type":  "open_path",
+                                        "target":  "D:\\Jarvis",
+                                        "aliases":  [
+                                                        "贾维斯文件夹",
+                                                        "jarvis文件夹",
+                                                        "贾维斯目录",
+                                                        "jarvis目录"
+                                                    ],
+                                        "intent":  "open",
+                                        "message":  "Jarvis 文件夹已打开"
+                                    },
+                    "pc_status":  {
+                                      "type":  "status",
+                                      "triggers":  [
+                                                       "电脑状态",
+                                                       "系统状态",
+                                                       "贾维斯状态",
+                                                       "jarvis状态",
+                                                       "你还在吗",
+                                                       "你在线吗",
+                                                       "查看电脑状态"
+                                                   ],
+                                      "message":  "电脑在线，Jarvis 正常运行"
+                                  },
+                    "lock_pc":  {
+                                    "type":  "lock_pc",
+                                    "triggers":  [
+                                                     "锁定电脑",
+                                                     "锁定计算机",
+                                                     "电脑锁屏",
+                                                     "锁屏",
+                                                     "把电脑锁上",
+                                                     "锁一下电脑"
+                                                 ],
+                                    "message":  "电脑已锁定"
+                                },
+                    "open_calculator":  {
+                                            "type":  "open_path",
+                                            "target":  "C:\\Windows\\System32\\calc.exe",
+                                            "aliases":  [
+                                                            "计算器",
+                                                            " калькулятор",
+                                                            "calculator"
+                                                        ],
+                                            "intent":  "open",
+                                            "message":  "计算器已打开"
+                                        }
+                },
+    "scenes":  {
+                   "work":  {
+                                "keywords":  [
+                                                 "开始工作",
+                                                 "进入工作模式",
+                                                 "工作模式",
+                                                 "我要工作了",
+                                                 "准备工作",
+                                                 "开始办公"
+                                             ],
+                                "actions":  [
+                                                "open_wechat",
+                                                "open_jarvis"
+                                            ],
+                                "message":  "工作模式已启动"
+                            }
+               }
+}

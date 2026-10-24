@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "mutex_name": "Local\\JarvisDesktopVoiceController",
+  "live_action_allowlist": ["open_calculator", "pc_status"],
+  "overlay": {
+    "enabled": true,
+    "duration_ms": 4200
+  },
+  "logging": {
+    "max_bytes": 1048576,
+    "backup_count": 5
+  },
+  "wake_listener": {
+    "command_timeout_seconds": 30.0,
+    "chunk_seconds": 1.0,
+    "minimum_rms": 180
+  }
+}
