@@ -7,3 +7,4 @@
 *.txt text eol=lf
 *.ps1 text eol=crlf
 *.cs text eol=crlf
+*.cmd text eol=crlf

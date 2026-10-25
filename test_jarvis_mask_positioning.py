@@ -7,6 +7,7 @@ import jarvis_mask_overlay
 
 
 class MaskPositioningTests(unittest.TestCase):
+    @unittest.skipUnless(jarvis_mask_overlay.MASK_ASSET.is_file(), "Personal-use mask image is intentionally not distributed")
     def test_mask_asset_is_a_transparent_png(self):
         with jarvis_mask_overlay.MASK_ASSET.open("rb") as image:
             header = image.read(33)

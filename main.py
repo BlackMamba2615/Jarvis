@@ -65,7 +65,7 @@ JARVIS_API_KEY = os.getenv("JARVIS_API_KEY")
 if not JARVIS_API_KEY:
     raise RuntimeError(
         "JARVIS_API_KEY is not configured. "
-        "Please check D:\\Jarvis\\.env"
+        "Configure it locally before starting the phone service."
     )
 
 
@@ -411,7 +411,7 @@ def handle_mobile_voice(text: str, *, allow_chat: bool = True):
         if not projects:
             return {
                 "success": False, "recognized": True, "actions": [],
-                "message": "D:\\LYY_work 暂无项目；请先将项目放入该目录",
+                "message": "已配置的项目目录暂无项目；请先放入项目",
             }
         try:
             token = create_codex_draft(text)

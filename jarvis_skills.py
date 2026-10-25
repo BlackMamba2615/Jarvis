@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from jarvis_settings import apply_skill_targets
+
 
 class SkillConfigError(RuntimeError):
     """Raised when skills.json is missing or unsafe."""
@@ -57,7 +59,7 @@ class SkillSystem:
             raise SkillConfigError(
                 f"Invalid JSON in {path} at line {error.lineno}, column {error.colno}"
             ) from error
-        return cls(path, config, normalize_term)
+        return cls(path, apply_skill_targets(config, path.parent), normalize_term)
 
     def _validate_string_list(self, value: object, field_name: str) -> list[str]:
         if not isinstance(value, list) or not value:

@@ -18,9 +18,10 @@ import threading
 import time
 
 from task_store import TaskStore, TERMINAL_STATES, is_redirect
+from jarvis_settings import load_local_settings
 
 
-PROJECT_ROOT = Path(r"D:\LYY_work")
+PROJECT_ROOT = Path(load_local_settings().get("project_root", r"D:\LYY_work"))
 _DRAFT_LIFETIME_SECONDS = 600
 _MAX_INPUT_CHARS = 2000
 _MAX_REPLY_CHARS = 900
@@ -107,7 +108,7 @@ def list_projects() -> list[str]:
 
 def resolve_project(name: str) -> Path:
     if not isinstance(name, str) or name not in list_projects():
-        raise InvalidProject("请选择 D:\\LYY_work 中的有效项目")
+        raise InvalidProject("请选择已配置项目目录中的有效项目")
     root = _root()
     candidate = root / name
     if is_redirect(candidate):

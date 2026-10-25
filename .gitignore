@@ -15,6 +15,15 @@
 !/desktop_controller.py
 !/dynamic_tts.py
 !/jarvis_health.py
+!/jarvis_settings.py
+!/jarvis_install.py
+!/jarvis_probe.py
+!/jarvis_setup.py
+!/jarvis_distribution_launcher.cs
+!/SetupJarvis.cmd
+!/StartJarvis.cmd
+!/CheckJarvis.cmd
+!/INSTALL.md
 !/jarvis_interactive_launcher.cs
 !/jarvis_mask_overlay.py
 !/jarvis_overlay.py
@@ -67,3 +76,7 @@
 /speech_cache/
 /backups*/
 /tmp*/
+/jarvis.local.json
+/.jarvis-install-pending
+/.jarvis-settings-*
+/projects/

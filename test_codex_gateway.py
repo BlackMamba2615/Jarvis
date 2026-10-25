@@ -2,8 +2,9 @@ import tempfile
 import subprocess
 import unittest
 import json
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 import codex_gateway
@@ -12,6 +13,17 @@ from task_store import TaskStore
 
 class CodexGatewaySafetyTests(unittest.TestCase):
     def setUp(self):
+        # These are bridge logic tests, not a live SDK conformance test. Keep
+        # optional SDK installation out of the clean-clone test prerequisites.
+        sdk = ModuleType("openai_codex")
+        sdk.Codex = mock.Mock()
+        sdk.CodexConfig = mock.Mock()
+        sdk.Sandbox = SimpleNamespace(read_only="read-only", workspace_write="workspace-write")
+        sdk.ApprovalMode = SimpleNamespace(deny_all="deny-all")
+        sdk.client = SimpleNamespace(subprocess=subprocess)
+        sdk_patch = mock.patch.dict(sys.modules, {"openai_codex": sdk})
+        sdk_patch.start()
+        self.addCleanup(sdk_patch.stop)
         codex_gateway.close_chat()
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -122,6 +134,12 @@ class CodexGatewaySafetyTests(unittest.TestCase):
             with self.assertRaises(codex_gateway.CodexBridgeUnavailable) as caught:
                 codex_gateway._codex_binary()
         self.assertEqual(caught.exception.reason, "binary_missing")
+
+    def test_optional_sdk_missing_is_a_safe_explicit_failure(self):
+        with mock.patch.dict(sys.modules, {"openai_codex": None}):
+            with self.assertRaises(codex_gateway.CodexBridgeUnavailable) as error:
+                codex_gateway._codex_config()
+        self.assertEqual(error.exception.reason, "sdk_missing")
 
     def test_codex_app_server_launches_without_console_on_windows(self):
         proxy = codex_gateway._NoConsoleCodexSubprocess()

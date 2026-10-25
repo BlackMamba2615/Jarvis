@@ -9,6 +9,9 @@ import numpy as np
 import jarvis_overlay
 import jarvis_mask_overlay
 
+requires_mask_asset = unittest.skipUnless(
+    jarvis_mask_overlay.MASK_ASSET.is_file(), "Personal-use image pixels are not distributed; vector fallback is tested separately"
+)
 
 class OverlayOptionsTests(unittest.TestCase):
     def test_options_are_bounded_and_status_is_allowlisted(self):
@@ -129,12 +132,15 @@ class OverlayOptionsTests(unittest.TestCase):
 class MaskHudMotionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not jarvis_mask_overlay.MASK_ASSET.is_file():
+            return
         image = Image.open(jarvis_mask_overlay.MASK_ASSET).convert("RGBA")
         cls.original = np.asarray(image).copy()
         cls.source = jarvis_mask_overlay._remove_baked_shadow(cls.original)
         cls.thresholds = jarvis_mask_overlay._reveal_thresholds(*image.size)
         cls.eyes = jarvis_mask_overlay._eye_pixels(cls.source)
 
+    @requires_mask_asset
     def test_cast_shadow_is_removed_without_changing_helmet_or_eyes(self):
         self.assertGreater(int(self.original[600, 80, 3]), 0)
         self.assertEqual(int(self.source[600, 80, 3]), 0)
@@ -142,6 +148,7 @@ class MaskHudMotionTests(unittest.TestCase):
         self.assertEqual(int(self.source[600, 286, 3]), 255)
         np.testing.assert_array_equal(self.source[:495], self.original[:495])
 
+    @requires_mask_asset
     def test_source_pixels_materialize_from_bottom_up(self):
         self.assertGreater(
             float(self.thresholds[130].mean()),
@@ -161,6 +168,7 @@ class MaskHudMotionTests(unittest.TestCase):
         self.assertLess(int(midway[:, :, 3].sum()), int(locked[:, :, 3].sum()))
         np.testing.assert_array_equal(locked[:, :, 3], self.source[:, :, 3])
 
+    @requires_mask_asset
     def test_eye_glow_changes_actual_eye_pixels_only(self):
         self.assertGreater(int(self.eyes.sum()), 1000)
         ys, xs = np.where(self.eyes)
@@ -172,6 +180,7 @@ class MaskHudMotionTests(unittest.TestCase):
                         float(self.source[self.eyes, :3].mean()))
         np.testing.assert_array_equal(frame[~self.eyes], self.source[~self.eyes])
 
+    @requires_mask_asset
     def test_speech_level_changes_only_real_eye_pixels_and_pauses_dim_them(self):
         quiet = jarvis_mask_overlay._display_eye_intensity("speaking", 4.0, 0.0)
         loud = jarvis_mask_overlay._display_eye_intensity("speaking", 4.0, 1.0)
@@ -236,6 +245,7 @@ class MaskHudMotionTests(unittest.TestCase):
         overlay._draw_full.assert_called_once()
         overlay._draw_mini.assert_not_called()
 
+    @requires_mask_asset
     def test_dark_nanobot_skin_precedes_metal_and_eye_ignition(self):
         seconds = 1.8
         frame = jarvis_mask_overlay._render_mask_pixels(
@@ -286,6 +296,25 @@ class MaskHudMotionTests(unittest.TestCase):
         self.assertTrue(jarvis_mask_overlay._pointer_near_top((500, 2), 400))
         self.assertFalse(jarvis_mask_overlay._pointer_near_top((500, 80), 400))
         self.assertFalse(jarvis_mask_overlay._pointer_near_top((900, 2), 400))
+
+    def test_missing_image_uses_vector_face_without_external_image(self):
+        overlay = jarvis_mask_overlay.MaskOverlay.__new__(jarvis_mask_overlay.MaskOverlay)
+        overlay.canvas = mock.Mock()
+        overlay.canvas.winfo_width.return_value = 1920
+        overlay.canvas.winfo_height.return_value = 1080
+        overlay._geometry_logged = True
+        overlay.mask_full = overlay.mask_mini = None
+        overlay._mini_eye_frames = []
+        overlay.status, overlay.message = "listening", "测试"
+        overlay._helmet = mock.Mock()
+        overlay._draw_armor_assembly = mock.Mock()
+        overlay._draw_nano_stream = mock.Mock()
+        overlay._draw_full(1.0)
+        overlay._helmet.assert_called_once()
+        overlay._draw_armor_assembly.assert_not_called()
+        overlay._helmet.reset_mock()
+        overlay._draw_mini(1.0)
+        overlay._helmet.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -10,10 +10,11 @@ import threading
 import requests
 
 from chat_sessions import check_cancelled
+from jarvis_settings import load_local_settings
 
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
-LOCAL_MODEL = "qwen3.8:27b"
+LOCAL_MODEL = load_local_settings().get("local_model", "qwen3.8:27b")
 _MAX_INPUT_CHARS = 2000
 _MAX_REPLY_CHARS = 900
 _HISTORY: deque[dict[str, str]] = deque(maxlen=8)
