@@ -43,6 +43,18 @@ class DesktopControllerSafetyTests(unittest.TestCase):
         cancelled.wait.assert_called_once()
         self.assertEqual(WAKE_ACKNOWLEDGEMENT, "先生，我在。")
 
+    def test_holographic_launcher_does_not_overlay_a_text_startup_popup(self) -> None:
+        controller = DesktopController(load_desktop_config(), dry_run=True, hologram_startup=True)
+        with mock.patch.object(controller, "_show_overlay") as overlay:
+            controller._show_startup_overlay()
+        overlay.assert_called_once_with("standby", "", duration_ms=1500, dismiss=True)
+
+    def test_non_exe_start_keeps_existing_ready_indicator(self) -> None:
+        controller = DesktopController(load_desktop_config(), dry_run=True)
+        with mock.patch.object(controller, "_show_overlay") as overlay:
+            controller._show_startup_overlay()
+        overlay.assert_called_once_with("success", "语音监听已就绪", duration_ms=10000)
+
     def test_inline_command_skips_wake_speech_but_keeps_full_face(self) -> None:
         controller = DesktopController(load_desktop_config(), dry_run=True)
         with mock.patch.object(controller, "_show_overlay") as overlay, mock.patch(

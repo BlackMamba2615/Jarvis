@@ -264,9 +264,10 @@ class SingleInstance:
 
 
 class DesktopController:
-    def __init__(self, config: dict[str, Any], *, dry_run: bool = False) -> None:
+    def __init__(self, config: dict[str, Any], *, dry_run: bool = False, hologram_startup: bool = False) -> None:
         self.config = config
         self.dry_run = dry_run
+        self.hologram_startup = hologram_startup
         self.logger = configure_logging(config)
         self.skills = SkillSystem.load(SKILLS_PATH)
         self.live_action_allowlist = frozenset(config.get("live_action_allowlist", []))
@@ -762,22 +763,31 @@ class DesktopController:
                     "wechat_desktop_bridge_start_failed type=%s", type(error).__name__
                 )
         self.logger.info("desktop_controller_started dry_run=%s", self.dry_run)
-        self._show_overlay("success", "语音监听已就绪", duration_ms=10000)
+        self._show_startup_overlay()
         try:
             listener.run_forever(stop_event=self._stop_event)
         finally:
             self._health_stop.set()
             self._write_health(stopped=True)
 
+    def _show_startup_overlay(self) -> None:
+        if self.hologram_startup:
+            # The EXE owns the text-free assembly animation. Initialize only
+            # the tucked-away top HUD so two entrance animations do not overlap.
+            self._show_overlay("standby", "", duration_ms=1500, dismiss=True)
+        else:
+            self._show_overlay("success", "语音监听已就绪", duration_ms=10000)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Jarvis desktop voice controller")
     parser.add_argument("--dry-run", action="store_true", help="Never execute allowlisted actions")
     parser.add_argument("--check", action="store_true", help="Validate configuration and exit")
+    parser.add_argument("--hologram-startup", action="store_true", help="Use the EXE's text-free startup animation")
     args = parser.parse_args()
 
     config = load_desktop_config()
-    controller = DesktopController(config, dry_run=args.dry_run)
+    controller = DesktopController(config, dry_run=args.dry_run, hologram_startup=args.hologram_startup)
     if args.check:
         controller.logger.info("configuration_check_passed")
         return 0

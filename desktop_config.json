@@ -11,8 +11,9 @@
     "backup_count": 5
   },
   "wake_listener": {
+    "asr_device": "auto",
     "command_timeout_seconds": 30.0,
-    "chunk_seconds": 1.0,
-    "minimum_rms": 180
+    "chunk_seconds": 0.1,
+    "minimum_rms": 120
   }
 }

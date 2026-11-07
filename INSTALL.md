@@ -1,6 +1,6 @@
 # 从 Git 拉取后的安装与验证
 
-这是面向 Windows 的源码安装版，不是免 Python、免模型的独立整机安装包。请先取得私有仓库访问权限，再克隆或下载源码；不要复制他人的环境文件、聊天记忆或桌面桥凭据。
+这是面向 Windows 的源码安装版，不是免 Python、免模型的独立整机安装包。可从公开的 [GitHub 仓库](https://github.com/BlackMamba2615/Jarvis)克隆或下载源码；不要复制他人的环境文件、聊天记忆或桌面桥凭据。
 
 ## 1. 准备 Python
 
@@ -19,6 +19,14 @@ Python 虚拟环境必须在目标电脑重新创建，不能直接复制另一�
 5. **准备固定语音回复**：生成 Skills 的固定中文 WAV 缓存，供手机技能回复使用；仅生成文件，不播放声音。普通聊天使用动态的本机 SAPI 语音。
 
 没有中文离线语音时，请自行在 Windows 中安装中文语音；没有可用麦克风或未授予权限时，需在系统中手动处理。检测到设备不等于真人唤醒已成功。
+
+可选的 NVIDIA 语音识别加速：默认基础安装支持 CPU，不要求独立显卡。若希望使用已安装的 NVIDIA 显卡，可在项目目录运行以下固定命令，安装约 1.3 GB 的 CUDA 12/cuDNN 9 Python 运行库；这不安装显卡驱动，不修改系统 PATH。已在 RTX 4060 Ti、Windows x64、CTranslate2 4.8.2 上验证。依赖要求参考 [faster-whisper 官方 GPU 说明](https://github.com/SYSTRAN/faster-whisper#gpu)。
+
+```powershell
+& .\.voice-venv\Scripts\python.exe -m pip --isolated --disable-pip-version-check install --no-input --only-binary=:all: -r requirements-asr-cuda.txt
+```
+
+桌面监听的 `wake_listener.asr_device` 默认为 `auto`：显卡可用时使用 FP16，运行库缺失或显卡推理出错时回退 CPU int8；没有缓存的语音模型时要求先下载，不在后台自动下载。若与本地聊天模型争用显存，可改为 `cpu`。`check_wake_sensitivity.py` 可做无麦克风/无播放的离线合成检查，`--cpu` 单独验证 CPU 路径。
 
 ## 3. 密钥与手机连接
 

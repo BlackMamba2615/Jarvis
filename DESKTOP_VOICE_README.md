@@ -2,9 +2,23 @@
 
 ## 启动
 
-在自己的 Windows 桌面上双击 `D:\Jarvis\JarvisDesktop.exe`。首次就绪以中央出现“语音监听已就绪”圆环为准；左上角小窗只表示启动器已经运行，模型可能仍在加载。
+在自己的 Windows 桌面上双击 `D:\Jarvis\JarvisDesktop.exe`，或桌面的 Jarvis 快捷方式。启动时直接在桌面中央播放无文字、无边框、背景透明的立体红金战甲组装投影：底部细网格与粒子流显现，躯干、腿部、肩臂依次合拢，最后落下面罩并点亮真实眼部与胸口反应堆。它采用有深度、透视与光照的程序化网格，不需要下载模型素材或联网播放视频。
+
+启动动画与语音模型并行加载，不会用动画阻塞监听。约 8 秒后，在匿名心跳确认模型与麦克风就绪时淡出，后续由正上方的小 Jarvis 待命；尚未就绪时保留投影，最多 24 秒后关闭，不用动画伪造成功。EXE 路径不再弹出旧文字提示框，也不会叠加另一段“语音监听已就绪”动画。命令行或旧脚本直接启动仍保留原就绪提示。
 
 只验证动画与语音时，双击 `D:\Jarvis\JarvisDesktopSafe.exe`。它不会执行任何电脑动作。
+
+只看新的启动投影、完全不启动麦克风或 Python 时，可以运行 `JarvisDesktop.exe --preview`。`--check` 仅在内存里校验网格与透明帧；`--render-frames <新目录>` 导出程序实际渲染的关键帧，不截图、不加载语音模型、不读取凭据。
+
+启动投影源码为 `jarvis_interactive_launcher.cs` 与 `jarvis_startup_hologram.cs`，使用系统 .NET Framework C# 编译器，并同时引用 `System.Windows.Forms.dll`、`System.Drawing.dll`；生成真实控制版时定义 `LIVE`，不定义则生成安全模式。透明窗口按 [Microsoft UpdateLayeredWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-updatelayeredwindow) 与[预乘 Alpha 混合](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-blendfunction)渲染，避免用黑色矩形遮挡桌面。
+
+从 Git 拉取者应先按 `INSTALL.md` 准备自己的 Python 环境和语音模型，再在项目目录使用 PowerShell 构建桌面启动器（未运行的已有同名 EXE 会被编译器替换，需自行保留备份；这不是免依赖安装包）：
+
+```powershell
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /platform:x64 /codepage:65001 /define:LIVE /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:JarvisDesktop.exe jarvis_interactive_launcher.cs jarvis_startup_hologram.cs
+```
+
+构建安全版时去掉 `/define:LIVE` 并将输出改为 `/out:JarvisDesktopSafe.exe`。`JarvisDesktop.exe --check` 可只校验透明渲染和退出联动，不会启动监听；正常双击才开始桌面语音服务。
 
 不要从 Codex 的隔离终端启动可见动画；那会把窗口开在与用户屏幕不同的 Windows 桌面。`start_jarvis_desktop.ps1` 仅供用户自己在交互桌面从 PowerShell 启动。
 
@@ -25,11 +39,17 @@
 
 也可以在一句话中说：“贾维斯，打开计算器”。
 
-纯语音休眠：说“贾维斯，休眠”（也可先唤醒，再单独说“休眠”）。Jarvis 会回应“好的，随时待命。”并收起动画，但后台仍监听唤醒词；以后只说“贾维斯”即可重新唤醒。休眠不是退出程序，不会切断手机端桌面桥接。麦克风采集片段为 1 秒；为了减少环境声音造成的误唤醒，唤醒词仍须经过普通识别的发音复核。
+纯语音休眠：说“贾维斯，休眠”（也可先唤醒，再单独说“休眠”）。Jarvis 会回应“好的，随时待命。”并收起动画，但后台仍监听唤醒词；以后只说“贾维斯”即可重新唤醒。休眠不是退出程序，不会切断手机端桌面桥接。麦克风每 100 毫秒连续采集，在约 300 毫秒短暂停顿后把完整语句送去识别，长句最多每 1.6 秒处理一次；为了减少环境声音造成的误唤醒，唤醒词仍须经过普通识别的发音复核。
 
 2026-10-24 唤醒灵敏度修订：采用三缓冲连续采集，避免片段间停启漏掉音节；按 20 毫秒小帧判断音量，原始音量门槛从 380 调整为 180，至少需要 80 毫秒有效信号，避免短促呼叫被前后静音稀释或一次点击触发。轻声信号只在内存中做最多 4 倍的有限增益；原始音量门槛、普通识别复核、播报回声保护与 Skills 权限边界均保留。跨片段唤醒会用相邻两段真实音频复核；不可信的识别文字不会累积到下一段，静音会清除旧片段。
 
+2026-11-07 再次修订：在当前机器上观察到单次识别达 6–8 秒、音频队列溢出。改为上述停顿分句并保留起音前 160 毫秒，避免固定一秒切分把唤醒名字拆开。使用随 faster-whisper 安装的本地 Silero 人声检测，不联网下载 VAD 模型；取消温度递增重试、关闭语音时间戳，保留热词与无提示双重确认。原始帧音量门槛调整为 120，轻声最多 8 倍内存增益；普通聊天与电脑动作权限均未扩大。队列最多保留 6 段，超过 3 秒的旧音频不再执行；丢段/设备恢复会清空拼接上下文，防止把不相邻的片段组合成命令。实际唤醒速度仍受 CPU 占用、麦克风和说话方式影响，需重启桌面监听后用耳机验证。
+
+同日真人复测后增加：较响且持续至少 160 毫秒的原始信号可跳过神经人声预筛，避免短中文名字被误判；仍须独立无提示复核才会唤醒。等待指令时再次呼叫名字会重播面具与回应、刷新 30 秒窗口，不会当作聊天。识别默认自动选择 NVIDIA 显卡 FP16；显卡或运行库不可用时回退 CPU int8，不安装驱动、不改系统 PATH、不联网下载语音模型。可选显卡依赖见 `requirements-asr-cuda.txt`，安装方法见 `INSTALL.md`；设置 `wake_listener.asr_device` 为 `cpu` 可固定使用 CPU。
+
 纯语音退出：说“贾维斯，退出”（或先唤醒，再单独说“退出”）。Jarvis 会回应“好的，贾维斯已退出。”，随后关闭电脑端麦克风监听和悬浮动画。与休眠不同，退出后不会再响应唤醒词；需双击 `JarvisDesktop.exe` 才能重新启动。手机端的 8000 服务不会被关闭，但需要桌面桥接的微信操作会暂时不可用。
+
+2026-11-08：保留原退出口令与回调，补上启动投影退出联动。若在战甲启动动画仍播放时语音退出，EXE 会在读到本次会话的新 `stopped` 心跳后立即关闭投影，不再等到动画超时；旧会话留下的停止记录不会取消新启动。此联动仅影响启动动画，不关闭手机服务。
 
 唤醒词来自 `skills.json` 的 `settings.wake_words`。真实控制版目前只启用了 `desktop_config.json` 中的 `live_action_allowlist`：打开计算器和查询电脑状态。微信、锁屏、工作模式等尚未验证的动作即使出现在 `skills.json` 中，也不会由桌面语音版执行；混合指令会整体拒绝。
 
@@ -59,7 +79,11 @@
 
 离线发音复核依赖 `pypinyin==0.55.0`，已安装在 `.voice-venv` 中。重建虚拟环境时需重新安装该版本。
 
-可手动运行 `check_wake_sensitivity.py` 进行真实离线识别冒烟检查：只使用本机缓存的 small 模型与内存中的合成语音，涵盖轻声、跨片段、静音、随机噪声和纯音。不打开麦克风、不播放声音、不保存音频、不连接云端，只输出匹配状态与处理耗时。它不代表真人耳机唤醒已验证。
+可手动运行 `check_wake_sensitivity.py` 进行真实离线识别冒烟检查：只使用本机缓存的 small 模型与内存中的合成语音，按实际 100 毫秒采集/停顿分句流程检查普通、轻声、极轻声、三个原切分位置、静音、随机噪声、纯音、普通讲话和未唤醒的电脑指令。不打开麦克风、不播放声音、不保存音频、不连接云端，只输出匹配状态与处理耗时。它不代表真人耳机唤醒已验证。
+
+该检查默认使用自动选择的设备，并输出实际后端；加 `--cpu` 可单独验证 CPU 回退。
+
+识别选项与本地人声检测依据 [faster-whisper 1.2.1 的识别实现](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/transcribe.py)及[随包提供的 VAD 实现](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/vad.py)。
 
 连续采集使用 Windows 已准备的循环音频缓冲，参考 [Microsoft waveInAddBuffer 文档](https://learn.microsoft.com/en-us/windows/win32/api/mmeapi/nf-mmeapi-waveinaddbuffer)。
 

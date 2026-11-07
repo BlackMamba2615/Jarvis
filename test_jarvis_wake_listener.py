@@ -1,8 +1,9 @@
 import ctypes
 import itertools
+import queue
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -12,6 +13,8 @@ from jarvis_wake_listener import (
     WakeConfig,
     WakeWordListener,
     WindowsWaveRecorder,
+    UtteranceBuffer,
+    _CapturedAudio,
     _WaveHeader,
     load_asr_hotwords,
 )
@@ -97,7 +100,7 @@ class ContinuousRecorderTests(unittest.TestCase):
         capture = self.recorder(driver).chunks(threading.Event())
         try:
             for number in range(4):
-                self.assertEqual(len(next(capture)), 32_000)
+                self.assertEqual(len(next(capture)), 3_200)
                 self.assertEqual(driver.adds, 3 + number + 1)
                 self.assertEqual(driver.starts, 1)
                 self.assertEqual(driver.unprepared, 0)
@@ -126,6 +129,50 @@ class ContinuousRecorderTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 next(self.recorder(driver).chunks(threading.Event()))
         self.assertEqual((driver.resets, driver.unprepared, driver.closes), (1, 3, 1))
+
+
+class UtteranceBufferTests(unittest.TestCase):
+    def setUp(self):
+        self.buffer = UtteranceBuffer(WakeConfig())
+
+    def test_name_spanning_old_one_second_boundary_arrives_as_one_utterance(self):
+        audio = np.zeros(24_000, dtype=np.int16)
+        audio[12_800:19_200] = 150
+        packets = []
+        for offset in range(0, audio.size, 1600):
+            packets.extend(self.buffer.feed(audio[offset:offset + 1600].tobytes()))
+        speech = [pcm for pcm in packets if np.any(np.frombuffer(pcm, dtype=np.int16))]
+        self.assertEqual(len(speech), 1)
+        self.assertEqual(np.count_nonzero(np.frombuffer(speech[0], dtype=np.int16)), 6400)
+        self.assertLess(len(speech[0]), 32_000)
+
+    def test_isolated_click_is_discarded_but_soft_name_is_retained(self):
+        click = np.zeros(8000, dtype=np.int16)
+        click[1600:1920] = 12_000
+        self.assertFalse(self.buffer.feed(click.tobytes()))
+        voice = np.concatenate((np.full(2400, 150, dtype=np.int16), np.zeros(4800, dtype=np.int16)))
+        self.assertEqual(len(self.buffer.feed(voice.tobytes())), 1)
+
+    def test_continuous_speech_is_bounded_without_duplicating_command_audio(self):
+        audio = np.full(64_000, 180, dtype=np.int16)
+        packets = self.buffer.feed(audio.tobytes())
+        packets += self.buffer.feed(bytes(9600))
+        self.assertEqual(len(packets), 3)
+        self.assertTrue(all(len(pcm) <= 51_200 for pcm in packets))
+        self.assertEqual(sum(np.count_nonzero(np.frombuffer(pcm, dtype=np.int16)) for pcm in packets), 64_000)
+
+    def test_reset_discards_partial_name_and_partial_frame(self):
+        self.buffer.feed(np.full(1601, 180, dtype=np.int16).tobytes())
+        self.buffer.reset()
+        packets = self.buffer.feed(bytes(32_000))
+        self.assertTrue(all(not any(pcm) for pcm in packets))
+
+    def test_quiet_ticks_can_finish_command_window_without_excessive_queueing(self):
+        packets = []
+        for _ in range(30):
+            packets += self.buffer.feed(bytes(3200))
+        self.assertEqual(len(packets), 3)
+        self.assertTrue(all(not any(pcm) for pcm in packets))
 
 
 class WakeListenerTests(unittest.TestCase):
@@ -567,9 +614,9 @@ class WakeListenerTests(unittest.TestCase):
         listener = self.listener([], wakes, commands)
         listener.transcriber = RepeatedWakeDecoder()
         self.assertEqual(listener.process_audio(loud_pcm, now=10), "wake")
-        self.assertEqual(listener.process_audio(loud_pcm, now=12), "waiting")
+        self.assertEqual(listener.process_audio(loud_pcm, now=12), "wake")
         self.assertEqual(listener.process_audio(quiet_pcm, now=13), "silence")
-        self.assertEqual(len(wakes), 1)
+        self.assertEqual(len(wakes), 2)
         self.assertFalse(commands)
 
     def test_negated_exit_does_not_exit(self):
@@ -709,7 +756,7 @@ class WakeListenerTests(unittest.TestCase):
         listener = self.listener(["贾维斯"], wakes, commands)
         listener.config = WakeConfig(skills_path=DEFAULT_SKILLS_PATH)
         soft = np.zeros(16_000, dtype=np.int16)
-        soft[6000:10_800] = 260  # 300 ms; whole-buffer RMS is only 142.
+        soft[6000:10_800] = 180  # 300 ms; whole-buffer RMS is only 98.
         self.assertLess(listener._rms(soft.tobytes()), listener.config.minimum_rms)
         self.assertEqual(listener.process_audio(soft.tobytes(), now=10), "wake")
         self.assertEqual(len(wakes), 1)
@@ -721,7 +768,7 @@ class WakeListenerTests(unittest.TestCase):
         click = np.zeros(16_000, dtype=np.int16)
         click[4800:5120] = 12_000  # 20 ms impulse, despite high whole RMS.
         self.assertEqual(listener.process_audio(click.tobytes(), now=10), "silence")
-        room = (np.ones(16_000, dtype=np.int16) * 120).tobytes()
+        room = (np.ones(16_000, dtype=np.int16) * 80).tobytes()
         self.assertEqual(listener.process_audio(room, now=12), "silence")
 
     def test_soft_wake_still_requires_unbiased_confirmation(self):
@@ -836,7 +883,7 @@ class WakeListenerTests(unittest.TestCase):
         soft = np.zeros(16_000, dtype=np.int16)
         soft[4000:8800] = 260
         decoder.transcribe(soft.tobytes())
-        self.assertAlmostEqual(float(model.audio.max()), 260 * 4 / 32768)
+        self.assertAlmostEqual(float(model.audio.max()), 1600 / 32768)
         self.assertTrue(np.all(model.audio[:4000] == 0))
         decoder.transcribe(bytes(32_000))
         self.assertTrue(np.all(model.audio == 0))
@@ -856,8 +903,164 @@ class WakeListenerTests(unittest.TestCase):
         transcriber.transcribe(self.pcm)
         self.assertIn("贾维斯", fake_model.options["hotwords"])
         self.assertIn("打开计算器", fake_model.options["hotwords"])
-        self.assertFalse(fake_model.options["vad_filter"])
+        self.assertTrue(fake_model.options["vad_filter"])
+        self.assertEqual(fake_model.options["temperature"], 0.0)
+        self.assertEqual(fake_model.options["best_of"], 1)
+        self.assertTrue(fake_model.options["without_timestamps"])
         self.assertEqual(fake_model.options["max_new_tokens"], 32)
+
+    def test_model_prepare_warms_encoder_even_when_vad_would_reject_silence(self):
+        class InspectModel:
+            def transcribe(self, _audio, **options):
+                self.options = options
+                return iter(()), None
+
+        decoder = FasterWhisperTranscriber(WakeConfig())
+        decoder._model = InspectModel()
+        decoder.prepare()
+        self.assertFalse(decoder._model.options["vad_filter"])
+
+    def test_strong_sustained_name_is_not_dropped_by_neural_prefilter(self):
+        class InspectModel:
+            def transcribe(self, _audio, **options):
+                self.options = options
+                return iter(()), None
+
+        decoder = FasterWhisperTranscriber(WakeConfig())
+        decoder._model = InspectModel()
+        decoder.transcribe(np.full(4800, 1600, dtype=np.int16).tobytes())
+        self.assertFalse(decoder._model.options["vad_filter"])
+        decoder.transcribe(np.full(4800, 260, dtype=np.int16).tobytes())
+        self.assertTrue(decoder._model.options["vad_filter"])
+
+    def test_cpu_selection_never_initializes_cuda(self):
+        decoder = FasterWhisperTranscriber(WakeConfig(asr_device="cpu"))
+        with patch("ctranslate2.get_cuda_device_count") as count, \
+                patch("jarvis_wake_listener.WhisperModel") as model:
+            decoder._get_model()
+        count.assert_not_called()
+        model.assert_called_once_with("small", device="cpu", compute_type="int8", local_files_only=True)
+
+    def test_missing_gpu_library_falls_back_once_without_logging_library_details(self):
+        decoder = FasterWhisperTranscriber(WakeConfig())
+        decoder._load_cuda_libraries = Mock(side_effect=OSError("private library path"))
+        with patch("ctranslate2.get_cuda_device_count", return_value=1), \
+                patch("jarvis_wake_listener.WhisperModel") as model, \
+                self.assertLogs("jarvis.wake", level="INFO") as captured:
+            self.assertIs(decoder._get_model(), model.return_value)
+            decoder._get_model()
+        self.assertEqual(decoder._device, "cpu")
+        self.assertEqual(decoder._load_cuda_libraries.call_count, 1)
+        self.assertNotIn("private library path", " ".join(captured.output))
+
+    def test_gpu_constructor_failure_uses_cpu(self):
+        decoder = FasterWhisperTranscriber(WakeConfig())
+        decoder._load_cuda_libraries = Mock()
+        cpu_model = object()
+        with patch("ctranslate2.get_cuda_device_count", return_value=1), \
+                patch("jarvis_wake_listener.WhisperModel", side_effect=[RuntimeError(), cpu_model]):
+            self.assertIs(decoder._get_model(), cpu_model)
+        self.assertEqual(decoder._device, "cpu")
+
+    def test_delayed_gpu_error_retries_the_same_audio_once_on_cpu(self):
+        class BrokenGPU:
+            def transcribe(self, _audio, **_options):
+                def fail_lazily():
+                    raise RuntimeError("private GPU failure details")
+                    yield
+                return fail_lazily(), None
+
+        cpu = Mock()
+        cpu.transcribe.side_effect = [(iter(()), None), (iter(()), None)]
+        decoder = FasterWhisperTranscriber(WakeConfig())
+        decoder._device = "cuda"
+        decoder._model = BrokenGPU()
+        with patch("jarvis_wake_listener.WhisperModel", return_value=cpu) as model, \
+                self.assertLogs("jarvis.wake", level="INFO") as captured:
+            self.assertEqual(decoder.transcribe(self.pcm), "")
+            self.assertEqual(decoder.transcribe(self.pcm), "")
+        self.assertEqual(model.call_count, 1)
+        self.assertEqual(cpu.transcribe.call_count, 2)
+        self.assertTrue(decoder._cuda_disabled)
+        self.assertNotIn("private GPU failure", " ".join(captured.output))
+
+    def test_repeated_name_restarts_wait_and_does_not_complete_pending_chat(self):
+        wakes, commands = [], []
+        listener = self.listener(["贾维斯", "假维斯啊"], wakes, commands)
+        self.assertEqual(listener.process_audio(self.pcm, now=10), "wake")
+        listener._pending_command = "旧的不完整句子"
+        self.assertEqual(listener.process_audio(self.pcm, now=16), "wake")
+        self.assertEqual(len(wakes), 2)
+        self.assertEqual(listener._waiting_for_command_until, 24)
+        self.assertEqual(listener._pending_command, "")
+        self.assertFalse(commands)
+
+    def test_invalid_asr_device_fails_before_starting_listener(self):
+        with self.assertRaises(ValueError):
+            WakeConfig(asr_device="not-a-device")
+
+    def test_very_soft_input_gain_is_capped_at_eight_not_unbounded(self):
+        class InspectModel:
+            def transcribe(self, audio, **_options):
+                self.audio = audio
+                return iter(()), None
+
+        decoder = FasterWhisperTranscriber(WakeConfig())
+        decoder._model = InspectModel()
+        decoder.transcribe(np.full(1600, 130, dtype=np.int16).tobytes())
+        self.assertAlmostEqual(float(decoder._model.audio.max()), 130 * 8 / 32768)
+
+    def test_slow_decoder_does_not_replay_stale_microphone_audio(self):
+        stop = threading.Event()
+        items = iter([_CapturedAudio(self.pcm, 46.0, 1), _CapturedAudio(self.pcm, 49.5, 2)])
+
+        class SimulatedQueue:
+            def get(self, **_options):
+                try:
+                    return next(items)
+                except StopIteration:
+                    stop.set()
+                    raise queue.Empty
+
+        listener = self.listener([], [], [])
+        listener.prepare = lambda: None
+        listener._wake_carry = "贾"
+        seen = []
+        listener.process_audio = lambda pcm: seen.append((pcm, listener._wake_carry)) or "ignored"
+        with patch("jarvis_wake_listener.queue.Queue", return_value=SimulatedQueue()), \
+                patch("jarvis_wake_listener.threading.Thread"), \
+                patch("jarvis_wake_listener.time.monotonic", return_value=50.0):
+            listener.run_forever(stop)
+        self.assertEqual(seen, [(self.pcm, "")])
+
+    def test_overflow_gap_cannot_join_wake_fragments_or_pending_commands(self):
+        stop = threading.Event()
+        items = iter([_CapturedAudio(self.pcm, 49.0, 1), _CapturedAudio(self.pcm, 49.5, 4)])
+
+        class SimulatedQueue:
+            def get(self, **_options):
+                try:
+                    return next(items)
+                except StopIteration:
+                    stop.set()
+                    raise queue.Empty
+
+        listener = self.listener([], [], [])
+        listener.prepare = lambda: None
+        seen = []
+
+        def process(_pcm):
+            seen.append((listener._wake_carry, listener._pending_command))
+            listener._wake_carry = "贾"
+            listener._pending_command = "打开"
+            return "ignored"
+
+        listener.process_audio = process
+        with patch("jarvis_wake_listener.queue.Queue", return_value=SimulatedQueue()), \
+                patch("jarvis_wake_listener.threading.Thread"), \
+                patch("jarvis_wake_listener.time.monotonic", return_value=50.0):
+            listener.run_forever(stop)
+        self.assertEqual(seen, [("", ""), ("", "")])
 
     def test_neutral_recognition_selects_action_after_biased_wake(self):
         class DualTranscriber:

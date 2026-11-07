@@ -5,6 +5,7 @@
 !/README.md
 !/requirements.txt
 !/requirements-wechat-qr.txt
+!/requirements-asr-cuda.txt
 !/desktop_config.json
 !/skills.json
 !/ai_router.py
@@ -25,6 +26,7 @@
 !/CheckJarvis.cmd
 !/INSTALL.md
 !/jarvis_interactive_launcher.cs
+!/jarvis_startup_hologram.cs
 !/jarvis_mask_overlay.py
 !/jarvis_overlay.py
 !/jarvis_skills.py

@@ -11,11 +11,13 @@ import ctypes
 from difflib import SequenceMatcher
 import json
 import logging
+import os
 import queue
 import re
 import threading
 import time
 import uuid
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,17 +50,22 @@ class WakeConfig:
     sample_rate: int = 16_000
     channels: int = 1
     sample_width: int = 2
-    chunk_seconds: float = 1.0
+    chunk_seconds: float = 0.1
     command_timeout_seconds: float = 30.0
     cooldown_seconds: float = 1.5
-    minimum_rms: int = 180
+    minimum_rms: int = 120
     microphone_device_id: int = -1
     # Reopening WAVE_MAPPER periodically follows a newly selected Windows
     # default input device even if the old endpoint keeps returning silence.
     capture_session_seconds: float = 90.0
     model_name: str = "small"
+    asr_device: str = "auto"
     event_path: Path = DEFAULT_EVENT_PATH
     skills_path: Path = DEFAULT_SKILLS_PATH
+
+    def __post_init__(self) -> None:
+        if self.asr_device not in {"auto", "cpu", "cuda"}:
+            raise ValueError("asr_device must be auto, cpu or cuda")
 
 
 @dataclass(frozen=True)
@@ -100,6 +107,75 @@ class MicrophoneStatus:
 @dataclass(frozen=True)
 class _CaptureReset:
     """Discard ASR context recorded before an input-device interruption."""
+
+
+@dataclass(frozen=True)
+class _CapturedAudio:
+    pcm: bytes
+    captured_at: float
+    sequence: int
+
+
+class UtteranceBuffer:
+    """Frame audio by pauses instead of cutting a wake name every second.
+
+    Uses only raw energy, not text. PCM stays bounded in memory. The ASR's
+    bundled speech detector subsequently rejects noise before decoding.
+    """
+
+    def __init__(self, config: WakeConfig) -> None:
+        self.config = config
+        self._frame_bytes = max(1, int(config.sample_rate * 0.02)) * config.channels * config.sample_width
+        self._pre_roll_bytes = self._frame_bytes * 8  # 160 ms before onset.
+        self._max_bytes = self._frame_bytes * 80  # At most 1.6 s per decode.
+        self.reset()
+
+    def reset(self) -> None:
+        self._remainder = b""
+        self._pre_roll = b""
+        self._active = bytearray()
+        self._voice_frames = 0
+        self._silent_frames = 0
+        self._quiet_frames = 0
+
+    def feed(self, pcm: bytes) -> list[bytes]:
+        output: list[bytes] = []
+        data = self._remainder + pcm
+        complete = len(data) // self._frame_bytes * self._frame_bytes
+        self._remainder = data[complete:]
+        for offset in range(0, complete, self._frame_bytes):
+            frame = data[offset:offset + self._frame_bytes]
+            values = np.frombuffer(frame, dtype=np.int16).astype(np.float64)
+            voiced = float(np.sqrt(np.mean(values * values))) >= self.config.minimum_rms
+            if voiced:
+                if not self._active:
+                    self._active.extend(self._pre_roll)
+                    self._pre_roll = b""
+                self._voice_frames += 1
+                self._silent_frames = self._quiet_frames = 0
+            elif self._active:
+                self._silent_frames += 1
+            else:
+                self._pre_roll = (self._pre_roll + frame)[-self._pre_roll_bytes:]
+                self._quiet_frames += 1
+                # Quiet ticks let a pending command/30 s timeout finish. Do
+                # not enqueue all 10 capture callbacks per second for ASR.
+                if self._quiet_frames >= 50:
+                    output.append(bytes(self._frame_bytes * 10))
+                    self._quiet_frames = 0
+                continue
+
+            self._active.extend(frame)
+            if self._silent_frames >= 15 or len(self._active) >= self._max_bytes:
+                if self._voice_frames >= 4:
+                    output.append(bytes(self._active))
+                self._pre_roll = (
+                    bytes(self._active[-self._pre_roll_bytes:])
+                    if self._silent_frames >= 15 else b""
+                )
+                self._active.clear()
+                self._voice_frames = self._silent_frames = self._quiet_frames = 0
+        return output
 
 
 class _WaveFormat(ctypes.Structure):
@@ -253,15 +329,68 @@ class FasterWhisperTranscriber:
         self.config = config
         self._model: WhisperModel | None = None
         self._hotwords = load_asr_hotwords(config.skills_path)
+        self._device = "cpu"
+        self._cuda_disabled = config.asr_device == "cpu"
+        self._dll_handles: list[object] = []
+
+    def _load_cuda_libraries(self) -> None:
+        """Register only installed libraries inside this Python environment.
+
+        No driver installation or global PATH changes. Keep directory/library
+        handles alive for CTranslate2's delayed Windows DLL loading.
+        """
+        if os.name != "nt":
+            return
+        from importlib.metadata import PackageNotFoundError, distribution
+
+        packages = (
+            ("nvidia-cuda-nvrtc-cu12", "nvidia/cuda_nvrtc/bin"),
+            ("nvidia-cublas-cu12", "nvidia/cublas/bin"),
+            ("nvidia-cudnn-cu12", "nvidia/cudnn/bin"),
+        )
+        directories = {}
+        for package, relative in packages:
+            try:
+                directory = Path(distribution(package).locate_file(relative)).resolve()
+            except PackageNotFoundError:
+                continue  # A system-provided CUDA installation may suffice.
+            if not directory.is_relative_to(Path(sys.prefix).resolve()):
+                raise OSError("CUDA package is outside the active Python environment")
+            if directory.is_dir():
+                directories[package] = directory
+                self._dll_handles.append(os.add_dll_directory(str(directory)))
+        for package, name in (
+            ("nvidia-cublas-cu12", "cublasLt64_12.dll"),
+            ("nvidia-cublas-cu12", "cublas64_12.dll"),
+            ("nvidia-cudnn-cu12", "cudnn64_9.dll"),
+        ):
+            if package in directories:
+                self._dll_handles.append(ctypes.WinDLL(str(directories[package] / name)))
+
+    def _cpu_model(self) -> WhisperModel:
+        self._device = "cpu"
+        LOGGER.info("asr_backend=cpu compute_type=int8")
+        return WhisperModel(self.config.model_name, device="cpu", compute_type="int8", local_files_only=True)
 
     def _get_model(self) -> WhisperModel:
         if self._model is None:
             LOGGER.info("Loading offline speech model %s", self.config.model_name)
-            self._model = WhisperModel(
-                self.config.model_name,
-                device="cpu",
-                compute_type="int8",
-            )
+            if not self._cuda_disabled:
+                import ctranslate2
+
+                try:
+                    if ctranslate2.get_cuda_device_count() > 0:
+                        self._load_cuda_libraries()
+                        self._model = WhisperModel(
+                            self.config.model_name, device="cuda", compute_type="float16", local_files_only=True,
+                        )
+                        self._device = "cuda"
+                        LOGGER.info("asr_backend=cuda compute_type=float16")
+                        return self._model
+                except (RuntimeError, OSError) as error:
+                    self._cuda_disabled = True
+                    LOGGER.warning("asr_cuda_fallback reason=%s", type(error).__name__)
+            self._model = self._cpu_model()
         return self._model
 
     def prepare(self) -> None:
@@ -269,9 +398,9 @@ class FasterWhisperTranscriber:
         # Loading weights does not warm the first inference. Finish that work
         # before announcing the listener as ready and opening the microphone.
         silent_pcm = np.zeros(self.config.sample_rate, dtype=np.int16).tobytes()
-        self._transcribe(silent_pcm, use_hotwords=True)
+        self._transcribe(silent_pcm, use_hotwords=True, detect_speech=False)
 
-    def _transcribe(self, pcm: bytes, *, use_hotwords: bool) -> str:
+    def _transcribe(self, pcm: bytes, *, use_hotwords: bool, detect_speech: bool = True) -> str:
         if not pcm:
             return ""
         # faster-whisper accepts mono float32 PCM directly, which keeps every
@@ -283,14 +412,42 @@ class FasterWhisperTranscriber:
         # or use the boosted signal to bypass the raw-audio activity gate.
         if voiced.size >= 4:
             level = max(1.0, float(np.percentile(voiced, 75)))
-            gain = min(4.0, max(1.0, 1600.0 / level))
+            gain = min(8.0, max(1.0, 1600.0 / level))
             audio = np.clip(audio * gain, -1.0, 1.0)
+        # Very short/loud Mandarin names can be rejected by neural VAD. A
+        # sustained strong raw signal may bypass that *prefilter*, never the
+        # independent unbiased wake/command checks below.
+        use_vad = detect_speech and not (voiced.size >= 8 and float(np.percentile(voiced, 75)) >= 600)
+        try:
+            return self._decode(audio, use_hotwords=use_hotwords, use_vad=use_vad)
+        except (RuntimeError, OSError) as error:
+            if self._device != "cuda":
+                raise
+            # Missing delayed DLLs or GPU memory pressure must not disable
+            # wake-up. Retry this audio once on CPU, not on every future call.
+            LOGGER.warning("asr_cuda_fallback reason=%s", type(error).__name__)
+            self._cuda_disabled = True
+            self._model = self._cpu_model()
+            return self._decode(audio, use_hotwords=use_hotwords, use_vad=use_vad)
+
+    def _decode(self, audio: np.ndarray, *, use_hotwords: bool, use_vad: bool) -> str:
         segments, _ = self._get_model().transcribe(
             audio,
             language="zh",
             beam_size=1,
+            best_of=1,
+            # A noisy 100 ms fragment must not trigger the default sequence
+            # of six temperature retries and block later real wake speech.
+            temperature=0.0,
+            without_timestamps=True,
             max_new_tokens=32,
-            vad_filter=False,
+            vad_filter=use_vad,
+            vad_parameters={
+                "threshold": 0.25,
+                "min_speech_duration_ms": 64,
+                "min_silence_duration_ms": 160,
+                "speech_pad_ms": 160,
+            },
             condition_on_previous_text=False,
             hotwords=self._hotwords if use_hotwords else None,
         )
@@ -692,6 +849,21 @@ class WakeWordListener:
                 if self._finish_pending_command():
                     return "command"
                 return "silence"
+            # Calling the name again while waiting is a fresh summons, not a
+            # chat request. This is already unbiased ASR inside an awake
+            # session; it grants no new action permissions.
+            repeated = self._find_confirmed_wake(
+                normalized,
+                strong_standalone=len(normalized) == 3 and self._speech_level(pcm) >= 1800,
+            )
+            if repeated and normalized[repeated[0] + repeated[1]:] in {"", "啊", "呀", "哦", "呢"}:
+                self._pending_command = ""
+                self._wake_carry = ""
+                self._waiting_for_command_until = current + self.config.command_timeout_seconds
+                if current - self._last_wake_at >= self.config.cooldown_seconds:
+                    self._last_wake_at = current
+                    self._emit_wake()
+                return "wake"
             neutral = self._neutral_command(
                 pcm, text, already_plain=use_plain
             )
@@ -857,11 +1029,13 @@ class WakeWordListener:
         # Capture and transcription run independently.  This prevents the
         # recognizer's CPU time from creating long periods when the microphone
         # is not listening.
-        # Hold enough audio for an occasional slow CPU inference; three chunks
-        # discarded an entire two-phrase user test during model warm-up.
-        audio_queue: queue.Queue[bytes | _CaptureReset | BaseException] = queue.Queue(maxsize=12)
+        # Do not execute stale speech or join text across an overflow/device
+        # gap. Sequence + capture time survive even if a reset marker drops.
+        audio_queue: queue.Queue[_CapturedAudio | _CaptureReset | BaseException] = queue.Queue(maxsize=6)
 
         def capture_worker() -> None:
+            utterances = UtteranceBuffer(self.config)
+            sequence = 0
             retry_seconds = 0.5
             had_audio = False
             recovering = False
@@ -900,19 +1074,21 @@ class WakeWordListener:
                             if reported_silent:
                                 self._emit_microphone_status("ready", "signal_restored")
                                 reported_silent = False
-                        try:
-                            audio_queue.put_nowait(recorded_pcm)
-                        except queue.Full:
-                            # Prefer the newest speech when recognition falls behind.
+                        for phrase_pcm in utterances.feed(recorded_pcm):
+                            sequence += 1
+                            packet = _CapturedAudio(phrase_pcm, time.monotonic(), sequence)
                             try:
-                                audio_queue.get_nowait()
-                            except queue.Empty:
-                                pass
-                            LOGGER.warning("audio_queue_overflow_dropped_oldest")
-                            try:
-                                audio_queue.put_nowait(recorded_pcm)
+                                audio_queue.put_nowait(packet)
                             except queue.Full:
-                                pass
+                                try:
+                                    audio_queue.get_nowait()
+                                except queue.Empty:
+                                    pass
+                                LOGGER.warning("audio_queue_overflow_dropped_oldest")
+                                try:
+                                    audio_queue.put_nowait(packet)
+                                except queue.Full:
+                                    pass
                     # Normal generator exhaustion is a planned device refresh
                     # for WAVE_MAPPER; it does not indicate a listening fault.
                     if active_stop.wait(0.05):
@@ -922,6 +1098,7 @@ class WakeWordListener:
                     # after Windows resumes. Reopen the capture device without
                     # killing the desktop controller and its phone bridge.
                     recovering = True
+                    utterances.reset()
                     near_zero_since = None
                     reported_silent = False
                     while True:
@@ -946,6 +1123,7 @@ class WakeWordListener:
             daemon=True,
         )
         capture_thread.start()
+        previous_sequence: int | None = None
         while not active_stop.is_set():
             try:
                 item = audio_queue.get(timeout=0.25)
@@ -955,10 +1133,20 @@ class WakeWordListener:
                 raise item
             if isinstance(item, _CaptureReset):
                 self._reset_capture_context()
+                previous_sequence = None
+                continue
+            if previous_sequence is not None and item.sequence != previous_sequence + 1:
+                self._reset_capture_context()
+                LOGGER.warning("audio_capture_gap_context_reset")
+            previous_sequence = item.sequence
+            age = time.monotonic() - item.captured_at
+            if age > 3.0:
+                self._reset_capture_context()
+                LOGGER.warning("audio_stale_dropped age_ms=%d", int(age * 1000))
                 continue
             try:
-                level = self._rms(item)
-                state = self.process_audio(item)
+                level = self._rms(item.pcm)
+                state = self.process_audio(item.pcm)
                 LOGGER.info("audio_chunk rms=%d state=%s", level, state)
             except Exception:
                 LOGGER.exception("Could not process an audio chunk")
