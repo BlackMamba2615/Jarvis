@@ -1,7 +1,8 @@
 {
   "version": 1,
   "mutex_name": "Local\\JarvisDesktopVoiceController",
-  "live_action_allowlist": ["open_calculator", "pc_status"],
+  "live_action_allowlist": ["open_calculator", "pc_status", "desktop_windows", "desktop_inspect",
+    "desktop_minimize", "desktop_maximize", "desktop_restore", "desktop_click", "desktop_confirm", "desktop_cancel"],
   "overlay": {
     "enabled": true,
     "duration_ms": 4200

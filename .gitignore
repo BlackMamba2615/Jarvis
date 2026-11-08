@@ -14,6 +14,13 @@
 !/check_wake_sensitivity.py
 !/codex_gateway.py
 !/desktop_controller.py
+!/desktop_automation.py
+!/DESKTOP_CONTROL_README.md
+!/desktop_skills/
+/desktop_skills/*
+!/desktop_skills/agent-desktop-windows/
+/desktop_skills/agent-desktop-windows/*
+!/desktop_skills/agent-desktop-windows/SKILL.md
 !/dynamic_tts.py
 !/jarvis_health.py
 !/jarvis_settings.py
@@ -28,6 +35,7 @@
 !/jarvis_interactive_launcher.cs
 !/jarvis_startup_hologram.cs
 !/jarvis_mask_overlay.py
+!/render_mask_preview.py
 !/jarvis_overlay.py
 !/jarvis_skills.py
 !/jarvis_wake_listener.py
@@ -51,6 +59,13 @@
 !/assets/
 /assets/*
 !/assets/SOURCE.md
+!/assets/ironman-mask-full.png
+!/assets/jarvis-cinematic-hologram-v2.png
+!/assets/jarvis-cinematic-hologram-v2.prompt.md
+!/previews/
+/previews/*
+!/previews/jarvis-cinematic-startup-v2.mp4
+!/previews/jarvis-mask-wake.mp4
 
 # Defense in depth, even if the source allowlist is later expanded.
 **/.env

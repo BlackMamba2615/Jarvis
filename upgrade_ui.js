@@ -20,6 +20,31 @@
     <hr><h4>项目任务</h4>
     <button class="save" id="refreshTasks">刷新任务列表</button>
     <div id="taskList"></div>
+    <hr><h4>电脑桌面控制</h4>
+    <p>通过本地 Windows 控件操作白名单应用。先选择窗口并查看控件；点击、输入和勾选会先展示目标，确认后才执行。不会把窗口内容发送给聊天模型。</p>
+    <button class="save" id="desktopRefresh">查看电脑窗口</button>
+    <select id="desktopWindow" style="width:95%" aria-label="选择电脑窗口"></select>
+    <button class="save" id="desktopInspect">查看控件</button>
+    <button class="save" id="desktopMinimize">最小化</button>
+    <button class="save" id="desktopMaximize">最大化</button>
+    <button class="save" id="desktopRestore">还原</button>
+    <div id="desktopControls" hidden>
+      <select id="desktopControl" style="width:95%" aria-label="选择窗口控件"></select>
+      <select id="desktopOperation" aria-label="桌面操作">
+        <option value="click">点击</option><option value="set-value">填写文本框</option>
+        <option value="check">勾选</option><option value="uncheck">取消勾选</option>
+        <option value="expand">展开</option><option value="collapse">收起</option>
+        <option value="scroll-up">向上滚动</option><option value="scroll-down">向下滚动</option>
+      </select>
+      <input id="desktopValue" maxlength="2000" autocomplete="off" placeholder="填写普通文字（不支持密码或密钥）" style="width:90%">
+      <button class="save" id="desktopPrepare">预览这项操作</button>
+    </div>
+    <div id="desktopApproval" hidden>
+      <div id="desktopPreview"></div>
+      <button class="save" id="desktopConfirm">确认执行一次</button>
+      <button class="save" id="desktopCancel">取消</button>
+    </div>
+    <div id="desktopStatus"></div>
     <hr><h4>电脑窗口分析 · 仅本地</h4>
     <p>只主动截取当前前台应用窗口，不后台监视。会尽力拦截密码、密钥、微信和终端等敏感窗口，但不能识别所有私密内容；请务必检查预览后再确认。请先把电脑切到普通应用窗口。</p>
     <button class="save" id="captureScreen">截取当前窗口并预览</button>
@@ -41,6 +66,7 @@
   else document.body.appendChild(panel);
 
   let activeRequest = null, activeController = null, previewToken = null, previewUrl = null;
+  let desktopToken = null, desktopTimer = null, desktopBusy = false, desktopEpoch = 0;
   let previewTimer = null, replyEpoch = 0, speechQueue = [], speechWorking = false, sentenceBuffer = '', currentSpeechUrl = null, displayedRouteTime = 0;
   const notice = text => { el('upgradeNotice').textContent = text; };
   async function api(path, options = {}) {
@@ -155,6 +181,9 @@
     if (value.qr_token) await showGuardedQr(value,epoch);
     if(epoch!==replyEpoch)return;
     if (value.codex_draft_token) showCodexDraft(value.codex_draft_token,value.codex_projects || []);
+    if(value.windows || value.controls || value.desktop_token) {
+      desktopEpoch++;clearDesktopApproval();showDesktopResult(value);
+    }
     if (!streamed) speakReply(value.speech_text || value.message || '');
   }
   async function consumeResponse(response, epoch) {
@@ -245,6 +274,65 @@
     el('screenBox').hidden=true;el('screenImage').removeAttribute('src');
     if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl=null;
   }
+  function clearDesktopApproval() {
+    desktopToken=null;clearTimeout(desktopTimer);el('desktopApproval').hidden=true;
+  }
+  function clearDesktopControls() {
+    el('desktopControls').hidden=true;el('desktopControl').replaceChildren();
+    el('desktopValue').value='';
+  }
+  function showDesktopResult(value) {
+    if(value.windows) {
+      clearDesktopControls();el('desktopWindow').replaceChildren();
+      for(const item of value.windows) {
+        const option=document.createElement('option');option.value=item.id;
+        option.textContent=`${item.app} · ${item.title}${item.minimized ? '（已最小化）':''}`;
+        el('desktopWindow').appendChild(option);
+      }
+    }
+    if(value.controls) {
+      el('desktopControl').replaceChildren();
+      for(const item of value.controls) {
+        const option=document.createElement('option');option.value=item.id;
+        option.textContent=`${item.name}（${item.role}）`;el('desktopControl').appendChild(option);
+      }
+      el('desktopControls').hidden=false;
+    }
+    if(value.desktop_token && value.preview) {
+      clearDesktopApproval();desktopToken=value.desktop_token;
+      const p=value.preview;
+      const op={click:'点击','set-value':'填写文字',check:'勾选',uncheck:'取消勾选',expand:'展开',collapse:'收起','scroll-up':'向上滚动','scroll-down':'向下滚动'}[p.operation] || '操作';
+      el('desktopPreview').textContent=`${op}：${p.window.app} · ${p.window.title} → ${p.control}。请核对目标；45秒内有效。`;
+      el('desktopApproval').hidden=false;
+      desktopTimer=setTimeout(()=>{clearDesktopApproval();el('desktopStatus').textContent='桌面操作已过期，请重新选择';},45000);
+    }
+    if(value.local_only && (value.windows || value.controls || value.desktop_token || value.delivery))
+      el('desktopStatus').textContent=value.message || '';
+  }
+  async function desktopRequest(payload) {
+    if(desktopBusy)return;
+    desktopBusy=true;const epoch=++desktopEpoch;
+    clearDesktopApproval();el('desktopStatus').textContent='正在请求电脑桌面…';
+    try {
+      const value=await(await api('/desktop/control',{method:'POST',body:JSON.stringify(payload)})).json();
+      if(epoch!==desktopEpoch)return;
+      el('desktopStatus').textContent=value.message || '';showDesktopResult(value);
+      if(payload.operation==='confirm' || payload.operation==='cancel' || ['minimize','maximize','restore'].includes(payload.operation))clearDesktopControls();
+    } catch(error) { if(epoch===desktopEpoch)el('desktopStatus').textContent=error.message; }
+    finally { desktopBusy=false; }
+  }
+  el('desktopRefresh').onclick=()=>desktopRequest({operation:'windows'});
+  el('desktopInspect').onclick=()=>desktopRequest({operation:'inspect',window_id:el('desktopWindow').value});
+  for(const [id,operation] of [['desktopMinimize','minimize'],['desktopMaximize','maximize'],['desktopRestore','restore']])
+    el(id).onclick=()=>desktopRequest({operation,window_id:el('desktopWindow').value});
+  el('desktopPrepare').onclick=()=>desktopRequest({operation:el('desktopOperation').value,
+    window_id:el('desktopWindow').value,control_id:el('desktopControl').value,
+    value:el('desktopOperation').value==='set-value' ? el('desktopValue').value:''});
+  el('desktopConfirm').onclick=()=>{const token=desktopToken;if(token)return desktopRequest({operation:'confirm',token});};
+  el('desktopCancel').onclick=()=>desktopRequest({operation:'cancel'});
+  el('desktopWindow').onchange=()=>{desktopEpoch++;clearDesktopApproval();clearDesktopControls();};
+  for(const id of ['desktopControl','desktopOperation'])el(id).onchange=()=>{desktopEpoch++;clearDesktopApproval();};
+  el('desktopValue').oninput=()=>{desktopEpoch++;clearDesktopApproval();};
   el('captureScreen').onclick=async()=>{
     if(!confirm('确认截取电脑当前前台窗口并在本手机预览？截图不会发送云端。'))return;
     await discard();el('screenStatus').textContent='正在请求桌面窗口预览…';

@@ -27,7 +27,7 @@ class PlannedAction:
 
 
 class SkillSystem:
-    ALLOWED_ACTION_TYPES = {"open_path", "status", "lock_pc", "wechat_login_qr"}
+    ALLOWED_ACTION_TYPES = {"open_path", "status", "lock_pc", "wechat_login_qr", "desktop_control"}
 
     def __init__(
         self,
@@ -91,6 +91,12 @@ class SkillSystem:
         punctuation = self.settings.get("punctuation", [])
         if not isinstance(punctuation, list) or not all(isinstance(item, str) for item in punctuation):
             raise SkillConfigError("settings.punctuation must be a list of strings")
+        if "desktop_apps" in self.settings:
+            from desktop_automation import validate_apps
+            try:
+                validate_apps(self.settings["desktop_apps"])
+            except ValueError as error:
+                raise SkillConfigError(str(error)) from error
 
         for action_id, action in self.actions.items():
             if not isinstance(action_id, str) or not action_id.strip():
@@ -116,6 +122,10 @@ class SkillSystem:
                 self._validate_string_list(action.get("aliases"), f"actions.{action_id}.aliases")
                 if action.get("intent", "open") != "open":
                     raise SkillConfigError(f"actions.{action_id}.intent must be 'open'")
+            elif action_type == "desktop_control":
+                from desktop_automation import OPERATIONS
+                if action.get("operation") not in OPERATIONS or "desktop_apps" not in self.settings:
+                    raise SkillConfigError(f"actions.{action_id}: invalid desktop operation or missing app whitelist")
             else:
                 self._validate_string_list(action.get("triggers"), f"actions.{action_id}.triggers")
                 keyword_groups = action.get("keyword_groups")
@@ -162,6 +172,14 @@ class SkillSystem:
         if not command:
             return [], None
 
+        from desktop_automation import parse_desktop_command
+        desktop_request = parse_desktop_command(command)
+        if desktop_request:
+            for action_id, action in self.actions.items():
+                if action["type"] == "desktop_control" and action["operation"] == desktop_request["operation"]:
+                    return [PlannedAction(action_id, action["message"])], None
+            return [], None
+
         for scene in self.scenes.values():
             keywords = self._terms(scene["keywords"])
             if self._contains_any(command, keywords):
@@ -201,7 +219,7 @@ class SkillSystem:
             ]
 
         for action_id, action in self.actions.items():
-            if action["type"] == "open_path":
+            if action["type"] in {"open_path", "desktop_control"}:
                 continue
             if action["type"] == "wechat_login_qr" and self._contains_any(
                 command, ["不要", "别", "不用", "取消", "停止"]
@@ -245,6 +263,8 @@ class SkillSystem:
             # QR delivery requires the authenticated mobile API and must not
             # silently run in the desktop voice controller or a scene.
             raise PermissionError("WeChat login QR requires the mobile API")
+        elif action_type == "desktop_control":
+            raise PermissionError("Desktop control requires the interactive adapter")
         else:  # Guarded by validation; retained as defense in depth.
             raise PermissionError(f"Unsupported action type: {action_type}")
         return action["message"]

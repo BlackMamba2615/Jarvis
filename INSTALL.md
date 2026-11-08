@@ -70,7 +70,23 @@ py -3.12 jarvis_setup.py --check --json
 
 新代码采用本机配置；未使用该配置的老安装仍保留既有默认行为。新启动中心要求先明确保存本机设置，避免克隆后直接执行作者电脑上的路径。
 
-Git 不包含虚拟环境、模型、生成 EXE、日志、语音缓存、任务数据、记忆或受限图片。缺少面具图片时使用内置矢量面具，视觉效果与作者本机不同。
+Git 不包含虚拟环境、模型、生成 EXE、日志、语音缓存、任务数据、记忆或参考图片。已明确包含实际使用的启动战甲和唤醒面具 PNG、对应源码及两段 MP4 预览。面具的第三方来源与个人使用限制见 `assets/SOURCE.md`，不因进入仓库而获得新的图片授权。
+
+## 构建带组装动画的桌面 EXE
+
+初始化 Python 环境后，在项目目录使用 Windows PowerShell 调用系统 C# 编译器即可生成桌面启动器，不执行 PowerShell 脚本、不修改执行策略。先备份已有同名 EXE，再执行：
+
+```powershell
+$jarvisCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+& $jarvisCompiler /nologo /target:winexe /platform:x64 /codepage:65001 /define:LIVE /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:JarvisDesktop.exe jarvis_interactive_launcher.cs jarvis_startup_hologram.cs
+& $jarvisCompiler /nologo /target:winexe /platform:x64 /codepage:65001 /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:JarvisDesktopSafe.exe jarvis_interactive_launcher.cs jarvis_startup_hologram.cs
+```
+
+`JarvisDesktop.exe` 使用正式白名单，`JarvisDesktopSafe.exe` 只模拟动作。两者都依赖同目录源码、`.voice-venv` 及 `assets` 文件；双击会先显示全息组装投影，再启动原桌面唤醒流程。手机语音控制、微信与原认证流程保持独立。
+
+只查看启动动画而不加载麦克风/模型，可运行 `JarvisDesktop.exe --preview`。`--check` 运行纯视觉/生命周期自检。两段成片位于 `previews`；视频的深色底不代表实际桌面有黑底。
+
+可选 Windows 桌面控件工具需另行安装，见 [DESKTOP_CONTROL_README.md](DESKTOP_CONTROL_README.md)。
 
 ## 安装后验收
 

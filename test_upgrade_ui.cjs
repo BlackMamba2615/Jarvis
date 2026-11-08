@@ -15,7 +15,7 @@ class Element {
   async play(){queueMicrotask(()=>this.onended?.());}
 }
 const get = id => {if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
-let remoteVoiceCalled=0, queuedStreams=[];
+let remoteVoiceCalled=0, queuedStreams=[], desktopCalls=[];
 const context = {
   document:{getElementById:get,querySelector:()=>get('original-security'),createElement:()=>new Element(),body:new Element(),hidden:false},
   apiKey:'test-only-key',voiceReplyEnabled:false,activeCodexTaskTimer:null,activeQrUrl:null,qrExpiryTimer:null,
@@ -31,6 +31,13 @@ const context = {
     if(path==='/ai/memories')return Response.json({memories:[]});
     if(path==='/ai/chat/stream')return queuedStreams.shift();
     if(path.startsWith('/ai/cancel/'))return Response.json({cancelled:true});
+    if(path==='/desktop/control'){
+      const payload=JSON.parse(options.body);desktopCalls.push(payload);
+      if(payload.operation==='windows')return Response.json({success:true,local_only:true,windows:[{id:'w-test',app:'test.exe',title:'<script>untrusted</script>'}]});
+      if(payload.operation==='inspect')return Response.json({success:true,local_only:true,controls:[{id:'control-test',name:'测试按钮',role:'button'}]});
+      if(payload.operation==='click')return Response.json({success:false,desktop_token:'approval-test',preview:{operation:'click',window:{app:'test.exe',title:'测试'},control:'测试按钮'}});
+      return Response.json({success:true,local_only:true,message:'已处理'});
+    }
     throw new Error('unexpected test path');
   },
 };
@@ -64,5 +71,17 @@ function streamReply(id,text,hold=false){
   assert.equal(remoteVoiceCalled,0);
   await get('stopReply').onclick();
   assert.match(get('state').textContent,/已停止当前回答/);
+  await get('desktopRefresh').onclick();
+  assert.equal(get('desktopWindow').children[0].textContent,'test.exe · <script>untrusted</script>');
+  get('desktopWindow').value='w-test';await get('desktopInspect').onclick();
+  get('desktopControl').value='control-test';get('desktopOperation').value='click';
+  await get('desktopPrepare').onclick();assert.equal(get('desktopApproval').hidden,false);
+  get('desktopValue').oninput();assert.equal(get('desktopApproval').hidden,true);
+  await get('desktopConfirm').onclick();assert.equal(desktopCalls.filter(x=>x.operation==='confirm').length,0);
+  await get('desktopPrepare').onclick();
+  await get('desktopConfirm').onclick();await get('desktopConfirm').onclick();
+  assert.equal(desktopCalls.filter(x=>x.operation==='confirm').length,1);
+  assert.equal(desktopCalls.at(-1).token,'approval-test');
+  assert.equal(get('desktopApproval').hidden,true);
   console.log('DOM smoke checks passed: health, stream, stale-response isolation, local-only speech, stop.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

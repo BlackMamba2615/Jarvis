@@ -1,6 +1,16 @@
 ﻿{
     "version":  1,
     "settings":  {
+                     "desktop_apps": {
+                         "记事本": ["notepad.exe"],
+                         "计算器": ["calculatorapp.exe", "calculator.exe", "calc.exe"],
+                         "文件管理器": ["explorer.exe"],
+                         "资源管理器": ["explorer.exe"],
+                         "画图": ["mspaint.exe"],
+                         "word": ["winword.exe"],
+                         "excel": ["excel.exe"],
+                         "wps": ["wps.exe", "et.exe", "wpp.exe"]
+                     },
                      "wake_words":  [
                                         "贾维斯",
                                         "贾维思",
@@ -63,6 +73,21 @@
                                      ]
                  },
     "actions":  {
+                    "desktop_windows": {"type":"desktop_control","operation":"windows","message":"查看电脑窗口"},
+                    "desktop_inspect": {"type":"desktop_control","operation":"inspect","message":"查看窗口控件"},
+                    "desktop_minimize": {"type":"desktop_control","operation":"minimize","message":"最小化窗口"},
+                    "desktop_maximize": {"type":"desktop_control","operation":"maximize","message":"最大化窗口"},
+                    "desktop_restore": {"type":"desktop_control","operation":"restore","message":"还原窗口"},
+                    "desktop_click": {"type":"desktop_control","operation":"click","message":"预览点击目标"},
+                    "desktop_fill": {"type":"desktop_control","operation":"set-value","message":"预览文本输入"},
+                    "desktop_check": {"type":"desktop_control","operation":"check","message":"预览勾选"},
+                    "desktop_uncheck": {"type":"desktop_control","operation":"uncheck","message":"预览取消勾选"},
+                    "desktop_expand": {"type":"desktop_control","operation":"expand","message":"预览展开"},
+                    "desktop_collapse": {"type":"desktop_control","operation":"collapse","message":"预览收起"},
+                    "desktop_scroll_up": {"type":"desktop_control","operation":"scroll-up","message":"预览向上滚动"},
+                    "desktop_scroll_down": {"type":"desktop_control","operation":"scroll-down","message":"预览向下滚动"},
+                    "desktop_confirm": {"type":"desktop_control","operation":"confirm","message":"确认桌面操作"},
+                    "desktop_cancel": {"type":"desktop_control","operation":"cancel","message":"取消桌面操作"},
                     "open_wechat":  {
                                         "type":  "open_path",
                                         "target":  "D:\\Program Files\\Tencent\\Weixin\\Weixin.exe",

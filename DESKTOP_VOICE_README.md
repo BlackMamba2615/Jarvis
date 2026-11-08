@@ -2,13 +2,17 @@
 
 ## 启动
 
-在自己的 Windows 桌面上双击 `D:\Jarvis\JarvisDesktop.exe`，或桌面的 Jarvis 快捷方式。启动时直接在桌面中央播放无文字、无边框、背景透明的立体红金战甲组装投影：底部细网格与粒子流显现，躯干、腿部、肩臂依次合拢，最后落下面罩并点亮真实眼部与胸口反应堆。它采用有深度、透视与光照的程序化网格，不需要下载模型素材或联网播放视频。
+在自己的 Windows 桌面上双击 `D:\Jarvis\JarvisDesktop.exe`，或桌面的 Jarvis 快捷方式。启动时在桌面中央显示无文字、无边框、背景透明的冷青色全息战甲：光点从下至上汇聚，扫描形成半透明装甲与内部机械细节，附带轻微纵深视差、胸口脉冲和原眼部像素闪烁。新效果采用本地高精度透明素材与程序化光子投影，启动时不联网。
+
+高精度素材为 `assets/jarvis-cinematic-hologram-v2.png`，由内置图像生成制作的原创未来战甲，提示词和制作说明见同目录 `jarvis-cinematic-hologram-v2.prompt.md`。它是带扫描/流动/视差的光学素材投影，未包装成可任意旋转的电影 3D 模型。素材与预览已随 Git 提供，无需另外寻找图片；缺少素材时仍可回退曲面点云与内部关节结构。
 
 启动动画与语音模型并行加载，不会用动画阻塞监听。约 8 秒后，在匿名心跳确认模型与麦克风就绪时淡出，后续由正上方的小 Jarvis 待命；尚未就绪时保留投影，最多 24 秒后关闭，不用动画伪造成功。EXE 路径不再弹出旧文字提示框，也不会叠加另一段“语音监听已就绪”动画。命令行或旧脚本直接启动仍保留原就绪提示。
 
 只验证动画与语音时，双击 `D:\Jarvis\JarvisDesktopSafe.exe`。它不会执行任何电脑动作。
 
 只看新的启动投影、完全不启动麦克风或 Python 时，可以运行 `JarvisDesktop.exe --preview`。`--check` 仅在内存里校验网格与透明帧；`--render-frames <新目录>` 导出程序实际渲染的关键帧，不截图、不加载语音模型、不读取凭据。
+
+`--render-animation <新目录>` 可用同一渲染器导出 20fps、约 7.8 秒的无声音画帧；仓库动态预览为 `previews/jarvis-cinematic-startup-v2.mp4`。视频的深色底仅用于预览，桌面窗口仍按透明 Alpha 合成。启动器的本机构建步骤见 `INSTALL.md`。
 
 启动投影源码为 `jarvis_interactive_launcher.cs` 与 `jarvis_startup_hologram.cs`，使用系统 .NET Framework C# 编译器，并同时引用 `System.Windows.Forms.dll`、`System.Drawing.dll`；生成真实控制版时定义 `LIVE`，不定义则生成安全模式。透明窗口按 [Microsoft UpdateLayeredWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-updatelayeredwindow) 与[预乘 Alpha 混合](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-blendfunction)渲染，避免用黑色矩形遮挡桌面。
 
@@ -35,7 +39,7 @@
 
 唤醒时深色金属微片只在面具轮廓内短距离爬行，落在素材真实的不透明像素上；没有从屏幕外飞入的尾迹或放射状烟花。枪灰色纳米底层以密集、错列的微片先铺开，稀疏的青蓝电路光沿表面闪过，金红装甲随后在同一批像素上封合。额头中央比两侧外壳稍晚完成，以表现头盔收拢；没有外围蓝色光圈。这个分层顺序参考了用户提供的《钢铁侠：纳米战衣》视频开头 20 秒，并非复制原视频素材。面具完整出现后会多停留一会；眼睛到组装末尾才点亮，闪烁只调整素材原有眼睛区域的像素，不再叠加光条，并用离线中文语音回应“先生，我在。请吩咐。”。约 5.6 秒后缩成屏幕正上方的小 Jarvis 状态条。小状态条几秒后向上收起，仅留顶部细边；把鼠标移到屏幕顶部中央便会展开。它不抢焦点，鼠标可以穿过；再次说“贾维斯”会重播全屏入场。后续的处理中、完成或出错状态会在同一状态条更新，不会叠加多个窗口。
 
-全屏与小状态条都使用 `assets\ironman-mask-full.png` 透明面具素材；如果素材丢失，会自动退回内置矢量面具。素材的个人使用许可与来源见 `assets\SOURCE.md`。
+全屏与小状态条都使用随仓库提供的 `assets\ironman-mask-full.png` 透明面具素材；如果素材丢失，会自动退回内置矢量面具。素材为第三方图片，个人使用限制与来源见 `assets\SOURCE.md`，项目不另行授予图片许可。`previews/jarvis-mask-wake.mp4` 展示现有粒子成形与眼部闪烁；使用 `render_mask_preview.py` 可重新导出程序预览，不会开启麦克风或截取桌面。
 
 也可以在一句话中说：“贾维斯，打开计算器”。
 

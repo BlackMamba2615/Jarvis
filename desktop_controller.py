@@ -28,6 +28,7 @@ from local_llm import LocalModelUnavailable
 from openai_chat import OpenAIAPIUnavailable
 from jarvis_skills import SkillSystem
 from dynamic_tts import speak_interruptible
+from desktop_automation import parse_desktop_command, handle_desktop_request, DesktopControlUnavailable, discard_desktop_pending
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -50,6 +51,7 @@ DESKTOP_CHAT_BLOCKED_TERMS = (
     "下载", "上传", "发送", "登录", "登陆", "退出登录", "锁屏", "关机",
     "重启", "修改", "编辑", "创建", "保存", "复制", "移动", "切换账号", "退出",
     "powershell", "cmd", "终端", "命令行", "脚本",
+    "最小化", "最大化", "还原", "控件", "点击", "桌面操作", "勾选", "滚动",
 )
 DESKTOP_ECHO_PHRASES = (
     "先生我在请吩咐", "先生我在", "我在请吩咐", "我在听", "请吩咐",
@@ -474,6 +476,7 @@ class DesktopController:
         ).start()
 
     def on_sleep(self, event: Any) -> None:
+        discard_desktop_pending()
         timed_out = getattr(event, "reason", "voice") == "timeout"
         with self._wake_state_lock:
             self._wake_reply_cancel.set()
@@ -498,6 +501,7 @@ class DesktopController:
 
     def on_exit(self, event: Any) -> None:
         """Stop only the desktop listener and its own HUD; leave phone API alive."""
+        discard_desktop_pending()
         del event
         with self._wake_state_lock:
             self._wake_reply_cancel.set()
@@ -522,7 +526,7 @@ class DesktopController:
             except Exception as error:
                 self.logger.warning("overlay_close_failed type=%s", type(error).__name__)
 
-    def _start_command_acknowledgement(self) -> threading.Event:
+    def _start_command_acknowledgement(self, phrase: str = COMMAND_ACKNOWLEDGEMENT) -> threading.Event:
         done = threading.Event()
         self._command_reply_cancel.set()
         self._command_reply_cancel = threading.Event()
@@ -531,11 +535,14 @@ class DesktopController:
 
         def speak_then_collapse() -> None:
             self._show_overlay(
-                "speaking", COMMAND_ACKNOWLEDGEMENT,
+                "speaking", phrase,
                 duration_ms=10000, voice_level=0.52,
             )
             try:
-                _speak_fixed_reply(COMMAND_ACKNOWLEDGEMENT, cancelled)
+                if phrase == COMMAND_ACKNOWLEDGEMENT:
+                    _speak_fixed_reply(phrase, cancelled)
+                else:
+                    speak_interruptible(phrase[:180], cancelled, rate=-1)
             finally:
                 self._end_voice_output()
                 if not cancelled.is_set():
@@ -701,11 +708,17 @@ class DesktopController:
                 "message": "该操作尚未启用",
             }
         else:
-            result = self.skills.run(
-                original_text=text,
-                normalized_command=normalized,
-                dry_run=self.dry_run,
-            )
+            if planned and self.skills.actions[planned[0].action_id]["type"] == "desktop_control" and not self.dry_run:
+                try:
+                    result = handle_desktop_request(parse_desktop_command(normalized), owner="desktop")
+                except (DesktopControlUnavailable, ValueError) as error:
+                    result = {"success": False, "recognized": True, "actions": [], "message": str(error)}
+            else:
+                result = self.skills.run(
+                    original_text=text,
+                    normalized_command=normalized,
+                    dry_run=self.dry_run,
+                )
         actions = result.get("actions", [])
         self.logger.info(
             "command recognized=%s success=%s actions=%s dry_run=%s",
@@ -714,7 +727,10 @@ class DesktopController:
             ",".join(actions) if actions else "none",
             self.dry_run,
         )
-        if result.get("success"):
+        desktop_action = planned and self.skills.actions[planned[0].action_id]["type"] == "desktop_control"
+        if desktop_action and not self.dry_run:
+            self._start_command_acknowledgement(str(result.get("message", "请查看电脑")))
+        elif result.get("success"):
             if self.dry_run:
                 self._show_overlay("success", str(result.get("message", "完成")), hold_full=False)
             else:

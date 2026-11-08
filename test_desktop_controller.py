@@ -27,6 +27,17 @@ class FakeMicrophoneStatus:
 
 
 class DesktopControllerSafetyTests(unittest.TestCase):
+    def test_desktop_action_routes_to_local_adapter_without_chat(self):
+        controller=DesktopController(load_desktop_config(),dry_run=False)
+        controller.overlay_config["enabled"]=False
+        with (mock.patch("desktop_controller.handle_desktop_request",return_value={
+                    "success":True,"recognized":True,"actions":["desktop_maximize"],"message":"已操作"}) as adapter,
+              mock.patch("desktop_controller.assistant_chat") as chat,
+              mock.patch.object(controller,"_start_command_acknowledgement")):
+            result=controller.on_command(FakeCommandEvent("最大化记事本"))
+        adapter.assert_called_once_with({"operation":"maximize","app":"记事本"},owner="desktop")
+        chat.assert_not_called();self.assertTrue(result["success"])
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.controller = DesktopController(load_desktop_config(), dry_run=True)

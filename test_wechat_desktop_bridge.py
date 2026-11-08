@@ -10,6 +10,22 @@ import wechat_login_qr as qr
 
 
 class WechatDesktopBridgeTests(unittest.TestCase):
+    def test_typed_desktop_control_uses_authenticated_fixed_route(self):
+        auth_file = Path(__file__).resolve().parent / "runtime" / f"bridge-control-test-{os.getpid()}.bin"
+        self.addCleanup(auth_file.unlink, missing_ok=True)
+        with (mock.patch.object(bridge, "AUTH_FILE", auth_file),
+              mock.patch("desktop_automation.handle_desktop_request", return_value={"windows":[],"local_only":True}) as execute):
+            bridge.start_desktop_bridge("D:/unused-wechat.exe",logging.getLogger("test-control-bridge"))
+            port = int.from_bytes(auth_file.read_bytes()[:2],"big")
+            call = request.Request(f"http://127.0.0.1:{port}{bridge.DESKTOP_CONTROL_PATH}",
+                                   data=b'{"operation":"windows"}',method="POST")
+            with self.assertRaises(error.HTTPError) as denied:
+                request.urlopen(call,timeout=3)
+            self.assertEqual(denied.exception.code,403)
+            execute.assert_not_called()
+            self.assertTrue(bridge.request_desktop_control({"operation":"windows"})["local_only"])
+            execute.assert_called_once_with({"operation":"windows"},owner="mobile")
+
     def test_authenticated_memory_only_qr_roundtrip(self):
         image = b"\x89PNG\r\n\x1a\n" + b"test-only"
         auth_file = Path(__file__).resolve().parent / "runtime" / f"bridge-test-{os.getpid()}.bin"

@@ -69,6 +69,7 @@ internal static class JarvisInteractiveLauncher
         // These authored visual-only flags cannot start the listener or a skill.
         if(options.Length==1 && options[0]=="--check") { HologramRenderer.Check(); CheckLifecycle(); return 0; }
         if(options.Length==2 && options[0]=="--render-frames") { HologramRenderer.RenderFrames(options[1]); return 0; }
+        if(options.Length==2 && options[0]=="--render-animation") { HologramRenderer.RenderAnimation(options[1]); return 0; }
         if(options.Length==1 && (options[0]=="--preview" || options[0]=="--preview-hold"))
         {
             using(HologramStartupForm preview=new HologramStartupForm(null,options[0]=="--preview-hold")) Application.Run(preview);

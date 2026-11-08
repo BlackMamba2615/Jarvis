@@ -45,7 +45,8 @@ from screen_vision import (ScreenUnavailable, prepare_preview, preview_bytes,
                            analyze_preview, discard_preview)
 from local_llm import LocalModelUnavailable
 from openai_chat import OpenAIAPIUnavailable
-from wechat_desktop_bridge import request_open_wechat_from_desktop
+from wechat_desktop_bridge import request_open_wechat_from_desktop, request_desktop_control, DesktopBridgeUnavailable
+from desktop_automation import parse_desktop_command
 from wechat_login_qr import (
     LoginQrUnavailable,
     QR_LIFETIME_SECONDS,
@@ -156,6 +157,14 @@ class ScreenRequest(BaseModel):
     confirmed: bool = False
     token: str = ""
     question: str = "请解释当前窗口，若有报错请说明可能原因和安全的下一步。"
+
+
+class DesktopControlRequest(BaseModel):
+    operation: str
+    window_id: str = ""
+    control_id: str = ""
+    value: str = ""
+    token: str = ""
 
 
 _CHAT_REQUESTS: dict[str, threading.Event] = {}
@@ -345,6 +354,15 @@ def execute_command(text: str, dry_run: bool = False):
 
     planned, _scene_message = skill_system.plan(command)
     action_ids = [item.action_id for item in planned]
+    if planned and skill_system.actions[planned[0].action_id]["type"] == "desktop_control":
+        if dry_run:
+            return {"success": True, "recognized": True, "actions": action_ids, "message": "桌面操作安全预览，未执行"}
+        payload = parse_desktop_command(command)
+        try:
+            result = request_desktop_control(payload)
+            return {"recognized": True, **result}
+        except (DesktopBridgeUnavailable, ValueError) as error:
+            return {"success": False, "recognized": True, "actions": [], "message": str(error)}
     if "wechat_login_qr" in action_ids:
         # The QR request is exclusive. The ordinary "open_wechat" match in a
         # phrase like "打开微信登录二维码" is folded into this one operation.
@@ -546,6 +564,15 @@ def ai_chat(request: ChatRequest, api_key: str = Security(verify_api_key)):
 @app.post("/ai/chat/stream")
 def ai_chat_stream(request: ChatRequest, api_key: str = Security(verify_api_key)):
     return chat_stream_response(request.text)
+
+
+@app.post("/desktop/control")
+def desktop_control(request: DesktopControlRequest, api_key: str = Security(verify_api_key)):
+    payload = {key: value for key, value in request.model_dump().items() if value}
+    try:
+        return request_desktop_control(payload)
+    except (DesktopBridgeUnavailable, ValueError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post("/ai/cancel/{request_id}")
